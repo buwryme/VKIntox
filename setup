@@ -267,11 +267,14 @@ mkdir -p "$PACKAGE_DIR/Shaders" "$PACKAGE_DIR/Textures" "$FONT_DIR"
 cp "$SCRIPT_DIR/VERSION" "$APP_CONFIG/version"
 ok "created config dirs"
 
-if [[ -f "$SCRIPT_DIR/assets/font/font.ttf" ]]; then
-    cp "$SCRIPT_DIR/assets/font/font.ttf" "$FONT_DIR/"
-    ok "copied font.ttf"
-fi
-[[ -f "$SCRIPT_DIR/assets/font/LICENSE" ]] && cp "$SCRIPT_DIR/assets/font/LICENSE" "$FONT_DIR/"
+# the overlay loads the whole M3 set: regular plus the three emphasized weights,
+# the Material Symbols subset for icons, and font.ttf as the legacy regular
+# fallback. scripts/setup mirrors this list.
+for font in GoogleSans-Regular.ttf GoogleSans-Medium.ttf GoogleSans-Bold.ttf GoogleSans-ExtraBold.ttf MaterialSymbolsRounded-subset.ttf LICENSE; do
+    cp "$SCRIPT_DIR/assets/font/$font" "$FONT_DIR/" || die "missing assets/font/$font"
+done
+cp "$FONT_DIR/GoogleSans-Regular.ttf" "$FONT_DIR/font.ttf"
+ok "installed fonts"
 
 section "reshade shaders"
 WORK_DIR=$(mktemp -d)
