@@ -269,10 +269,11 @@ else
     APP_CONFIG="$HOME/.var/app/$APP_ID/config/VKIntox"
 fi
 RESHADE_DIR="$APP_CONFIG/reshade"
-PACKAGE_DIR="$RESHADE_DIR/packages"
+SHADERS_DIR="$RESHADE_DIR/Shaders"
+TEXTURES_DIR="$RESHADE_DIR/Textures"
 FONT_DIR="$APP_CONFIG/font"
 
-mkdir -p "$PACKAGE_DIR/Shaders" "$PACKAGE_DIR/Textures" "$FONT_DIR"
+mkdir -p "$SHADERS_DIR" "$TEXTURES_DIR" "$FONT_DIR"
 cp "$SCRIPT_DIR/VERSION" "$APP_CONFIG/version"
 ok "created config dirs"
 
@@ -291,17 +292,20 @@ trap 'rm -rf "$WORK_DIR"; stop_spin' EXIT
 
 INI_FILE="$SCRIPT_DIR/assets/EffectPackages.ini"
 EFFECTS_HASH=$(sha256sum "$INI_FILE" | cut -d' ' -f1)
-EFFECTS_MARKER="$PACKAGE_DIR/.vkintox_effects_hash"
+EFFECTS_MARKER="$RESHADE_DIR/.vkintox_effects_hash"
 
 if [[ -f "$EFFECTS_MARKER" && "$(cat "$EFFECTS_MARKER")" == "$EFFECTS_HASH" ]]; then
     ok "effects up to date"
 else
-    rm -rf "$PACKAGE_DIR"
-    mkdir -p "$PACKAGE_DIR/Shaders" "$PACKAGE_DIR/Textures"
+    rm -rf "$SHADERS_DIR" "$TEXTURES_DIR"
+    mkdir -p "$SHADERS_DIR" "$TEXTURES_DIR"
+    # the old layout nested these under reshade/packages; drop it so shader
+    # discovery cannot see the same files in two places
+    rm -rf "$RESHADE_DIR/packages"
 
     start_spin "downloading + extracting packages..."
     PACKAGE_LOG="$WORK_DIR/package-install.log"
-    python3 - "$WORK_DIR" "$PACKAGE_DIR/Shaders" "$PACKAGE_DIR/Textures" "$INI_FILE" >"$PACKAGE_LOG" 2>&1 <<'PYEOF' || { stop_spin; cat "$PACKAGE_LOG" >&2; die "shader fetch failed"; }
+    python3 - "$WORK_DIR" "$SHADERS_DIR" "$TEXTURES_DIR" "$INI_FILE" >"$PACKAGE_LOG" 2>&1 <<'PYEOF' || { stop_spin; cat "$PACKAGE_LOG" >&2; die "shader fetch failed"; }
 import configparser, os, sys, shutil, urllib.request, zipfile
 
 work_dir, shaders_dir, textures_dir, ini_file = sys.argv[1:5]
@@ -319,13 +323,23 @@ for section in cfg.sections():
     url = pkg.get("DownloadUrl")
     if not url: continue
 
-    raw_shader = pkg.get("InstallPath", r".\reshade-shaders\Shaders").replace("\\", "/").lstrip("./")
-    sub_shader = raw_shader.replace("reshade-shaders/Shaders", "", 1).strip("/")
-    raw_tex = pkg.get("TextureInstallPath", r".\reshade-shaders\Textures").replace("\\", "/").lstrip("./")
-    sub_tex = raw_tex.replace("reshade-shaders/Textures", "", 1).strip("/")
+    # every package installs into its own directory under Shaders/ and Textures/,
+    # named after its InstallPath subdir or, when it targets the shared root, the
+    # first word of its PackageName
+    def package_dir(configured, root, fallback):
+        path = (configured or "").replace("\\", "/")
+        marker = "reshade-shaders/" + root
+        sub = path.split(marker, 1)[1].strip("/") if marker in path else ""
+        sub = sub or fallback
+        sub = "".join(c if (c.isalnum() or c in "-_.") else "_" for c in sub).strip("._")
+        return sub or "package"
 
-    tgt_shaders = os.path.join(shaders_dir, sub_shader) if sub_shader else shaders_dir
-    tgt_textures = os.path.join(textures_dir, sub_tex) if sub_tex else textures_dir
+    fallback_dir = (pkg.get("PackageName", section).split() or [section])[0]
+    sub_shader = package_dir(pkg.get("InstallPath"), "Shaders", fallback_dir)
+    sub_tex = package_dir(pkg.get("TextureInstallPath"), "Textures", sub_shader)
+
+    tgt_shaders = os.path.join(shaders_dir, sub_shader)
+    tgt_textures = os.path.join(textures_dir, sub_tex)
     os.makedirs(tgt_shaders, exist_ok=True)
     os.makedirs(tgt_textures, exist_ok=True)
 
@@ -391,11 +405,11 @@ else
     ok "enable with ENABLE_VKINTOX=1 when launching a native game"
 fi
 
-SHADER_COUNT=$(find "$PACKAGE_DIR/Shaders" -name '*.fx' 2>/dev/null | wc -l)
-TEXTURE_COUNT=$(find "$PACKAGE_DIR/Textures" -type f 2>/dev/null | wc -l)
+SHADER_COUNT=$(find "$SHADERS_DIR" -name '*.fx' 2>/dev/null | wc -l)
+TEXTURE_COUNT=$(find "$TEXTURES_DIR" -type f 2>/dev/null | wc -l)
 
 printf "\n${BLUE}${B}done${NC}\n"
-printf "  shaders:    ${DIM}%s${NC}  (%s)\n" "$SHADER_COUNT" "$PACKAGE_DIR/Shaders"
-printf "  textures:   ${DIM}%s${NC}  (%s)\n" "$TEXTURE_COUNT" "$PACKAGE_DIR/Textures"
-printf "  packages:   ${DIM}%s${NC}\n" "$PACKAGE_DIR"
+printf "  shaders:    ${DIM}%s${NC}  (%s)\n" "$SHADER_COUNT" "$SHADERS_DIR"
+printf "  textures:   ${DIM}%s${NC}  (%s)\n" "$TEXTURE_COUNT" "$TEXTURES_DIR"
+printf "  packages:   ${DIM}%s${NC}\n" "$RESHADE_DIR"
 printf "\n${B}setup finished!!${NC}\n"
