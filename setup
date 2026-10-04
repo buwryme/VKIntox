@@ -388,6 +388,16 @@ PYEOF
     printf '%s\n' "$EFFECTS_HASH" > "$EFFECTS_MARKER"
 fi
 
+# shaders that ship with VKIntox itself, in their own VKIntox package dir beside
+# the downloaded packages; refreshed every run so a shader fix lands without a
+# package hash change
+mkdir -p "$SHADERS_DIR/VKIntox"
+for shader in CAS.fx MSAA.fx; do
+    cp "$SCRIPT_DIR/assets/builtInShaders/$shader" "$SHADERS_DIR/VKIntox/$shader" ||
+        die "missing assets/builtInShaders/$shader"
+done
+ok "installed built-in shaders"
+
 section "shader paths"
 ok "shader/texture paths setup"
 
